@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Text, TextInput, View, Image, StyleSheet, Dimensions, TouchableOpacity, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useRouter } from "expo-router";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import {auth} from "@/app/(root)/prooperties/firebaseConfig";
+import {Alert} from "react-native";
 
 const Authorization = () => {
     const [email, setEmail] = useState('');
@@ -10,8 +13,19 @@ const Authorization = () => {
     const screenWidth = Dimensions.get('window').width;
     const router = useRouter();
 
-    const handleLogin = () => {
-        router.push('/home');
+    const handleLogin = async () => {
+        const authInstance = getAuth(); // Ensure you're using the correct auth instance
+
+        try {
+            await signInWithEmailAndPassword(authInstance, email, password);
+            Alert.alert("Успішний вхід", "Ви успішно увійшли!");
+            router.push('/home'); // Make sure '/home' is a valid route in your app
+        } catch (error: any) { // Приводимо тип до 'any', або можемо перевіряти тип помилки
+            const errorMessage = error?.code === 'auth/user-not-found'
+                ? 'Користувача не знайдено. Перевірте правильність введеного e-mail.'
+                : error.message;
+            Alert.alert("Помилка", errorMessage); // Виведення помилки
+        }
     };
 
     return (

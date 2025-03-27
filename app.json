@@ -40,6 +40,15 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "apiKey": "AIzaSyBcsskvFTDWo_UMAgLm9TZbVBxb-QksgZA",
+      "authDomain": "memiary-3e1d0.firebaseapp.com",
+      "projectId": "memiary-3e1d0",
+      "storageBucket": "memiary-3e1d0.appspot.com",
+      "messagingSenderId": "231274251137",
+      "appId": "1:231274251137:web:625a32ecacad1c5fcfde80",
+      "measurementId": "G-QXHK0PVDSB"
     }
   }
 }
