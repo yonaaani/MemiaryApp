@@ -1,32 +1,56 @@
 import React, { useState } from 'react';
 import { Text, TextInput, View, Image, StyleSheet, Dimensions, TouchableOpacity, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
 import { useRouter } from "expo-router";
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import {auth} from "@/app/(root)/prooperties/firebaseConfig";
 import {Alert} from "react-native";
+import { FirebaseError } from 'firebase/app';
+import { useUser } from "@/app/(root)/prooperties/UserContext";
 
 const Authorization = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const navigation = useNavigation();
     const screenWidth = Dimensions.get('window').width;
     const router = useRouter();
+    const { setUser } = useUser();
 
     const handleLogin = async () => {
-        const authInstance = getAuth(); // Ensure you're using the correct auth instance
+        console.log("handleLogin was called");
+
+        if (!email || !password) {
+            Alert.alert("Помилка", "Будь ласка, заповніть усі поля.");
+            return;
+        }
 
         try {
-            await signInWithEmailAndPassword(authInstance, email, password);
+            console.log("Attempting login with:", email, password);
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            console.log("User Credential:", userCredential);
+            const userId = userCredential.user.uid;
+            console.log("User ID:", userId);
+
+            setUser({ id: userId });
+
+            const currentUser = auth.currentUser;
+            console.log("Current User:", currentUser);
+
             Alert.alert("Успішний вхід", "Ви успішно увійшли!");
-            router.push('/home'); // Make sure '/home' is a valid route in your app
-        } catch (error: any) { // Приводимо тип до 'any', або можемо перевіряти тип помилки
-            const errorMessage = error?.code === 'auth/user-not-found'
-                ? 'Користувача не знайдено. Перевірте правильність введеного e-mail.'
-                : error.message;
-            Alert.alert("Помилка", errorMessage); // Виведення помилки
+            console.log("Redirecting to home...");
+            router.push('/home');
+        } catch (error: unknown) {
+            console.error("Error during login:", error);
+            if (error instanceof FirebaseError) {
+                const errorMessage = error.code === 'auth/user-not-found'
+                    ? 'Користувача не знайдено. Перевірте правильність введеного e-mail.'
+                    : error.message;
+                Alert.alert("Помилка", errorMessage);
+            } else {
+                Alert.alert("Помилка", "Сталася непередбачувана помилка.");
+            }
         }
     };
+
+
 
     return (
         <KeyboardAvoidingView

@@ -1,12 +1,33 @@
-import { View, Text, TextInput, Image, TouchableOpacity, StyleSheet, FlatList, Dimensions, Animated, Easing } from 'react-native';
-import React, { useState, useRef } from 'react';
+import { View, Text, TextInput, ActivityIndicator, Image, TouchableOpacity, StyleSheet, FlatList, Dimensions, Animated, Easing } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
 import { useFonts } from 'expo-font';
 import AppLoading from 'expo-app-loading';
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { useRouter  } from "expo-router";
+import { useUser } from "@/app/(root)/prooperties/UserContext";
+import { collection, query, where, getDocs, Timestamp, addDoc } from 'firebase/firestore';
+import { auth, db } from "@/app/(root)/prooperties/firebaseConfig";
 
 const { width } = Dimensions.get('window');
 const { height } = Dimensions.get('window');
+
+interface Diary {
+    coverPhoto: string;
+    createdAt: string;
+    pageCount: number;
+    title: string;
+    userId: string;
+}
 const Home = () => {
-    const [diaries, setDiaries] = useState([]);
+    const router = useRouter();
+    const { user } = useUser();
+
+    const [loading, setLoading] = useState(true);
+
+
+    const [diaries, setDiaries] = useState<Diary[]>([]);
+
+
     const [selectedDiaryId, setSelectedDiaryId] = useState(null);  // Зберігаємо id вибраного щоденника
 
     const [isEditing, setIsEditing] = useState(false);
@@ -26,16 +47,88 @@ const Home = () => {
         return <AppLoading />;
     }
 
-    const addDiary = () => {
-        const newDiary = {
-            id: diaries.length.toString(),
-            title: `Diary ${diaries.length + 1}`,
-            pages: `${Math.floor(Math.random() * 100) + 10}`,
-            cover: require('../../../assets/images/diary-cover.png'),
-            lastVisited: new Date().toISOString(),
-        };
-        setDiaries([...diaries, newDiary]);
+    if (loading) {
+        return (
+            <View>
+                <ActivityIndicator size="large" color="#0000ff" />
+            </View>
+        );
+    }
+
+    // ПЕРЕВІРКА ЩОДЕННИКІВ ПО КОРИСТУВАЧУ
+    const fetchDiaries = async () => {
+        if (!user || !user.id) {
+            console.log('User is not authenticated');
+            return;
+        }
+
+        const diariesRef = collection(db, 'journals');
+        const q = query(diariesRef, where('userId', '==', user.id));
+
+        try {
+            const querySnapshot = await getDocs(q);
+            const diaries: Diary[] = querySnapshot.docs.map((doc) => {
+                const data = doc.data();
+                // Перетворюємо Timestamp на строку
+                const createdAt: string = data.createdAt instanceof Timestamp
+                    ? data.createdAt.toDate().toLocaleString()
+                    : '';
+                return {
+                    coverPhoto: data.coverPhoto || '',
+                    createdAt: createdAt,
+                    pageCount: data.pageCount,
+                    title: data.title,
+                    userId: data.userId,
+                } as Diary;
+            });
+            setDiaries(diaries);
+        } catch (error) {
+            console.error('Error getting diaries: ', error);
+        }
     };
+
+    useEffect(() => {
+        const fetchData = async () => {
+            // Очікуємо на завершення запитів до Firebase
+            await fetchDiaries();
+            setLoading(false); // Після цього завершуємо завантаження
+        };
+
+        fetchData();
+    }, [user]); // Перезапускати, коли змінюється користувач
+
+
+    // ДОДАТИ ЩОДЕННИК
+    const addDiary = async () => {
+        // Перевірка на наявність користувача
+        if (!user || !user.id) {
+            console.log('User is not authenticated');
+            return;
+        }
+
+        const newDiary = {
+            coverPhoto: '../../../assets/images/diary-cover.png', // Шлях до зображення обкладинки
+            createdAt: new Date().toISOString(), // Поточна дата у форматі ISO
+            pageCount: 0, // Початкова кількість сторінок
+            title: `Diary ${diaries.length + 1}`, // Назва щоденника
+            userId: user.id, // Ідентифікатор користувача
+        };
+
+        try {
+            const docRef = await addDoc(collection(db, 'journals'), newDiary); // Додаємо щоденник в Firestore
+            console.log('New diary added with ID: ', docRef.id);
+
+            // Оновлюємо локальний state, додаючи новий щоденник з ID, який генерується Firestore
+            setDiaries(prevDiaries => [
+                ...prevDiaries,
+                { ...newDiary, id: docRef.id } // Додаємо новий щоденник з генерованим ID
+            ]);
+        } catch (error) {
+            console.error('Error adding diary: ', error);
+        }
+    };
+
+
 
     const addNote = (id) => {
         console.log("Editing note with Diary id:", id);

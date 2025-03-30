@@ -1,18 +1,48 @@
 import React, { useState } from 'react';
 import { Text, TextInput, View, Image, StyleSheet, Dimensions, TouchableOpacity, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { useRouter } from "expo-router";
+import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "@/app/(root)/prooperties/firebaseConfig";
+import {Alert} from "react-native";
 
 const Registration = () => {
     const [email, setEmail] = useState('');
-    const [firstname, setFirstname] = useState('');
+    const [firstName, setFirstname] = useState('');
     const [surname, setSurname] = useState('');
     const [password, setPassword] = useState('');
     const screenWidth = Dimensions.get('window').width;
     const router = useRouter();
 
-    const handleRegister = () => {
-        router.push('/home');
+    const handleRegister = async () => {
+        if (!email || !password || !firstName || !surname) {
+            Alert.alert("Error", "All fields are required");
+            return;
+        }
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
+
+            // Додаємо користувача у Firestore
+            await setDoc(doc(db, "Users", user.uid), {
+                firstName,
+                surname,
+                email
+            });
+
+            Alert.alert("Success", "Account created successfully");
+            router.push('/home');
+        } catch (error: unknown) {
+            let errorMessage = "An unknown error occurred";
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === "string") {
+                errorMessage = error;
+            }
+            Alert.alert("Registration Failed", errorMessage);
+        }
     };
+
 
     return (
         <KeyboardAvoidingView
@@ -45,7 +75,7 @@ const Registration = () => {
                         <TextInput
                             style={[styles.input, { width: screenWidth - 50 }]}
                             placeholder="Firstname"
-                            value={firstname}
+                            value={firstName}
                             onChangeText={setFirstname}
                         />
                     </View>
