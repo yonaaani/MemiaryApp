@@ -1,63 +1,87 @@
-import { View, Text, TextInput, ActivityIndicator, Image, TouchableOpacity, StyleSheet, FlatList, Dimensions, Animated, Easing } from 'react-native';
+import { View, Text, TextInput, ActivityIndicator, Image, ImageStyle, TouchableOpacity, StyleProp, StyleSheet, FlatList, Dimensions, Animated, Easing } from 'react-native';
 import React, { useState, useRef, useEffect } from 'react';
 import { useFonts } from 'expo-font';
-import AppLoading from 'expo-app-loading';
-import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { useRouter  } from "expo-router";
 import { useUser } from "@/app/(root)/prooperties/UserContext";
-import { collection, query, where, getDocs, Timestamp, addDoc } from 'firebase/firestore';
-import { auth, db } from "@/app/(root)/prooperties/firebaseConfig";
+import { collection, query, where, getDocs, Timestamp, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from "@/app/(root)/prooperties/firebaseConfig";
+import * as SplashScreen from 'expo-splash-screen';
+import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 const { height } = Dimensions.get('window');
 
 interface Diary {
+    id: string;
     coverPhoto: string;
     createdAt: string;
+    lastUpdated: string;
     pageCount: number;
     title: string;
     userId: string;
 }
 const Home = () => {
+    const { user } = useUser()
     const router = useRouter();
-    const { user } = useUser();
-
-    const [loading, setLoading] = useState(true);
-
 
     const [diaries, setDiaries] = useState<Diary[]>([]);
 
-
-    const [selectedDiaryId, setSelectedDiaryId] = useState(null);  // Зберігаємо id вибраного щоденника
+    const [selectedDiaryId, setSelectedDiaryId] = useState<string | null>(null); // Зберігаємо id вибраного щоденника
 
     const [isEditing, setIsEditing] = useState(false);
     const editPanelAnim = useRef(new Animated.Value(height)).current;
+    const [editedTitle, setEditedTitle] = useState<string>('');
 
     const [isSearching, setIsSearching] = useState(false);
     const searchPanelAnim = useRef(new Animated.Value(height)).current;
 
     const [searchText, setSearchText] = useState('');
-    const [filteredJournals, setFilteredJournals] = useState([]);
+    const [filteredJournals, setFilteredJournals] = useState<Diary[]>([]);
 
     const [fontsLoaded] = useFonts({
-        'Bropella': require('../../../assets/fonts/Bropella.ttf'),
+        Bropella: require('../../../assets/fonts/Bropella.ttf'),
     });
 
-    if (!fontsLoaded) {
-        return <AppLoading />;
-    }
+    useEffect(() => {
+        const loadFonts = async () => {
+            try {
+                if (fontsLoaded) {
+                    await SplashScreen.hideAsync();
+                } else {
+                    await SplashScreen.preventAutoHideAsync();
+                }
+            } catch (error) {
+                console.error("Error hiding splash screen:", error);
+            }
+        };
 
-    if (loading) {
-        return (
-            <View>
-                <ActivityIndicator size="large" color="#0000ff" />
-            </View>
-        );
-    }
+        loadFonts();
+    }, [fontsLoaded]);
+
+
+
+    console.log("Diaries:", diaries);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!user || !user.id) {
+                console.log('User is not authenticated or id is missing');
+                return;
+            }
+            await fetchDiaries();
+        };
+        fetchData();
+    }, [user]);
+
+    // Встановлюємо дефолтний вибраний щоденник
+    useEffect(() => {
+        if (diaries && diaries.length > 0 && selectedDiaryId === null) {
+            setSelectedDiaryId(diaries[0].id);
+        }
+    }, [diaries]);
 
     // ПЕРЕВІРКА ЩОДЕННИКІВ ПО КОРИСТУВАЧУ
     const fetchDiaries = async () => {
-        if (!user || !user.id) {
+        if (!user?.id) {
             console.log('User is not authenticated');
             return;
         }
@@ -67,13 +91,16 @@ const Home = () => {
 
         try {
             const querySnapshot = await getDocs(q);
+            console.log('Query Snapshot:', querySnapshot); // Додаємо лог для перевірки
+
             const diaries: Diary[] = querySnapshot.docs.map((doc) => {
                 const data = doc.data();
-                // Перетворюємо Timestamp на строку
                 const createdAt: string = data.createdAt instanceof Timestamp
                     ? data.createdAt.toDate().toLocaleString()
                     : '';
+
                 return {
+                    id: doc.id,
                     coverPhoto: data.coverPhoto || '',
                     createdAt: createdAt,
                     pageCount: data.pageCount,
@@ -81,71 +108,136 @@ const Home = () => {
                     userId: data.userId,
                 } as Diary;
             });
-            setDiaries(diaries);
+
+            console.log('Diaries fetched:', diaries); // Перевірте, чи повертаються щоденники
+
+            const validDiaries = diaries.filter(diary => diary.id);
+            setDiaries(validDiaries);  // Оновлюємо стан
         } catch (error) {
             console.error('Error getting diaries: ', error);
         }
     };
 
-    useEffect(() => {
-        const fetchData = async () => {
-            // Очікуємо на завершення запитів до Firebase
-            await fetchDiaries();
-            setLoading(false); // Після цього завершуємо завантаження
-        };
-
-        fetchData();
-    }, [user]); // Перезапускати, коли змінюється користувач
-
-
     // ДОДАТИ ЩОДЕННИК
     const addDiary = async () => {
-        // Перевірка на наявність користувача
         if (!user || !user.id) {
             console.log('User is not authenticated');
             return;
         }
 
         const newDiary = {
-            coverPhoto: '../../../assets/images/diary-cover.png', // Шлях до зображення обкладинки
-            createdAt: new Date().toISOString(), // Поточна дата у форматі ISO
-            pageCount: 0, // Початкова кількість сторінок
-            title: `Diary ${diaries.length + 1}`, // Назва щоденника
-            userId: user.id, // Ідентифікатор користувача
+            coverPhoto: 'https://res.cloudinary.com/dgr5xbssw/image/upload/v1744041900/diary-cover_hajbkl.png',
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            pageCount: 0,
+            title: `Diary ${diaries.length + 1}`,
+            userId: user.id,
         };
 
         try {
-            const docRef = await addDoc(collection(db, 'journals'), newDiary); // Додаємо щоденник в Firestore
+            const docRef = await addDoc(collection(db, 'journals'), newDiary);
             console.log('New diary added with ID: ', docRef.id);
 
-            // Оновлюємо локальний state, додаючи новий щоденник з ID, який генерується Firestore
             setDiaries(prevDiaries => [
                 ...prevDiaries,
-                { ...newDiary, id: docRef.id } // Додаємо новий щоденник з генерованим ID
+                { ...newDiary, id: docRef.id }
             ]);
         } catch (error) {
             console.error('Error adding diary: ', error);
         }
     };
 
+    // ЗМІНИТИ НАЗВУ ЩОДЕННИКА
+    const updateDiaryTitle = async (id: string, newTitle: string) => {
+        const diaryRef = doc(db, 'journals', id);
 
+        try {
+            await updateDoc(diaryRef, {
+                title: newTitle,
+                lastUpdated: new Date().toISOString()
+            });
 
-    const addNote = (id) => {
-        console.log("Editing note with Diary id:", id);
-        setSelectedDiaryId(id);
-        // Додайте вашу логіку редагування
+            setDiaries(prev =>
+                prev.map(d =>
+                    d.id === id ? { ...d, title: newTitle, lastUpdated: new Date().toISOString() } : d
+                )
+            );
+
+            console.log('Diary title updated!');
+        } catch (error) {
+            console.error('Failed to update diary title:', error);
+        }
     };
 
-    const editDiary = (id) => {
+
+    // ДОДАВАННЯ ДУМКИ (опісля оновлення стану, коли останній раз користувач робив запис в щоденнику)
+    /*const addNote = async (journalId: string, title: string, content: string) => {
+        console.log("Adding note to Journal ID:", journalId);
+
+        const journalRef = doc(db, 'journals', journalId);
+        const thoughtsRef = collection(db, 'thoughts');
+
+        try {
+            // Додаємо запис до колекції `thoughts`
+            const newNote = {
+                title: title,
+                content: content,
+                createdAt: Timestamp.now(),
+                journalId: journalId
+            };
+
+            const noteDocRef = await addDoc(thoughtsRef, newNote);
+            console.log("Note added with ID:", noteDocRef.id);
+
+            // Оновлюємо поле `lastUpdated` у відповідному щоденнику
+            await updateDoc(journalRef, {
+                lastUpdated: Timestamp.now()
+            });
+
+            // Оновлюємо стан для локального рендерингу
+            setDiaries(prevDiaries =>
+                prevDiaries.map(diary =>
+                    diary.id === journalId
+                        ? { ...diary, lastUpdated: new Date().toISOString() }
+                        : diary
+                )
+            );
+
+        } catch (error) {
+            console.error("Error adding note or updating lastUpdated:", error);
+        }
+    };*/
+
+    const editDiary = (id: string) => {
         console.log("Editing diary with id:", id);
         setSelectedDiaryId(id);
         // Додайте вашу логіку редагування
     };
 
-    const deleteDiary = (id) => {
-        console.log("Deleting diary with id:", id);
-        setDiaries(diaries.filter(diary => diary.id !== id));
-        setSelectedDiaryId(null); // Скидаємо вибір після видалення
+    // ВИДАЛЕННЯ ЩОДЕННИКА
+    const deleteDiary = async () => {
+        if (!selectedDiaryId) {
+            alert('Будь ласка, виберіть щоденник для видалення');
+            return;
+        }
+
+        try {
+            // Видаляємо щоденник з Firebase
+            await deleteDoc(doc(db, 'journals', selectedDiaryId));
+
+            // Оновлюємо список щоденників локально, видаляючи вибраний
+            const updatedDiaries = diaries.filter(diary => diary.id !== selectedDiaryId);
+            setDiaries(updatedDiaries);
+
+            // Скидаємо вибір щоденника
+            setSelectedDiaryId(null);
+
+            // Повідомлення про успіх
+            console.log('Успіх', 'Щоденник успішно видалено');
+        } catch (error) {
+            console.error('Error deleting diary: ', error);
+            console.log('Помилка', 'Не вдалося видалити щоденник');
+        }
     };
 
     const uploadDiary = () => {
@@ -158,7 +250,9 @@ const Home = () => {
         // Додайте вашу логіку для іншої кнопки
     };
 
-    const openEditPanel = (id) => {
+    const openEditPanel = (id: string) => {
+        const diary = diaries.find(d => d.id === id);
+        setEditedTitle(diary?.title || '');
         setSelectedDiaryId(id);
         setIsEditing(true);
         Animated.timing(editPanelAnim, {
@@ -170,13 +264,21 @@ const Home = () => {
     };
 
     const closeEditPanel = () => {
+        if (selectedDiaryId) {
+            const currentDiary = diaries.find(d => d.id === selectedDiaryId);
+            if (currentDiary && editedTitle !== currentDiary.title) {
+                updateDiaryTitle(selectedDiaryId, editedTitle);
+            }
+        }
+
         Animated.timing(editPanelAnim, {
-            toValue: height, // Опускаємо панель вниз
+            toValue: height,
             duration: 300,
             easing: Easing.out(Easing.ease),
             useNativeDriver: true,
         }).start(() => {
             setIsEditing(false);
+            setEditedTitle('');
         });
     };
 
@@ -201,7 +303,7 @@ const Home = () => {
         });
     };
 
-    const handleSearchTextChange = (text) => {
+    const handleSearchTextChange = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
             // Якщо текст порожній, показуємо всі журнали
@@ -214,45 +316,62 @@ const Home = () => {
         }
     };
 
-    const timeAgo = (date) => {
-        const now = new Date();
-        const diff = now - new Date(date); // Різниця між поточним часом і датою
-        const seconds = Math.floor(diff / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const hours = Math.floor(minutes / 60);
-        const days = Math.floor(hours / 24);
-        const weeks = Math.floor(days / 7);
-        const years = Math.floor(days / 365);
+    // Прорахування часу, як за давно user останній раз додавав запис в щоденник
+    const timeAgo = (timestamp: string | number | Date | null | undefined): string => {
+        if (!timestamp) return "Never"; // Якщо немає дати
 
-        if (years > 0) {
-            return `${years}yr ago`;
-        } else if (weeks > 0) {
-            return `${weeks}wk ago`;
-        } else if (days > 0) {
-            return `${days}d ago`;
-        } else if (hours > 0) {
-            return `${hours}h ago`;
-        } else if (minutes > 0) {
-            return `${minutes}m ago`;
-        } else {
-            return `${seconds}s ago`;
+        const now: Date = new Date();
+        const past: Date = new Date(timestamp);
+
+        if (isNaN(past.getTime())) return "Invalid date"; // Перевірка на коректність дати
+
+        let diff: number = Math.floor((now.getTime() - past.getTime()) / 1000);
+
+        if (diff < 0) {
+            return "Just now"; // Якщо дата в майбутньому
         }
+
+        const timeIntervals: { label: string; seconds: number }[] = [
+            { label: "year", seconds: 31536000 },
+            { label: "month", seconds: 2592000 },
+            { label: "week", seconds: 604800 },
+            { label: "day", seconds: 86400 },
+            { label: "hour", seconds: 3600 },
+            { label: "minute", seconds: 60 },
+            { label: "second", seconds: 1 }
+        ];
+
+        for (let interval of timeIntervals) {
+            const count: number = Math.floor(diff / interval.seconds);
+            if (count >= 1) {
+                return `${count} ${interval.label}${count > 1 ? 's' : ''} ago`;
+            }
+        }
+
+        return "Just now";
     };
+
+    const goToDiaryPage = (id: string) => {
+        router.push(`/diary?id=${id}`);
+
+
+    };
+
 
 
     return (
         <View style={styles.container}>
             <View style={styles.topContainer}>
                 <TouchableOpacity style={styles.leftButton}>
-                    <Image source={require('../../../assets/images/button-store.png')} style={styles.buttonImage} />
+                    <Image source={require('../../../assets/images/button-store.png')} style={styles.buttonImage as StyleProp<ImageStyle>} />
                 </TouchableOpacity>
                 {diaries.length != 0 && (
                     <TouchableOpacity style={styles.searchButton} onPress={openSearchPanel}>
-                        <Image source={require('../../../assets/images/button-search.png')} style={styles.buttonImage} />
+                        <Image source={require('../../../assets/images/button-search.png')} style={styles.buttonImage as StyleProp<ImageStyle>} />
                     </TouchableOpacity>
                 )}
                 <TouchableOpacity style={styles.rightButton}>
-                    <Image source={require('../../../assets/images/button-settings.png')} style={styles.buttonImage} />
+                    <Image source={require('../../../assets/images/button-settings.png')} style={styles.buttonImage as StyleProp<ImageStyle>} />
                 </TouchableOpacity>
             </View>
 
@@ -261,7 +380,7 @@ const Home = () => {
                     <>
                         <Text style={styles.text}>Hi there,             let’s start!</Text>
                         <TouchableOpacity style={styles.bottomAdd} onPress={addDiary}>
-                            <Image source={require('../../../assets/images/button-add.png')} style={styles.buttonImageAdd} />
+                            <Image source={require('../../../assets/images/button-add.png')} style={styles.buttonImageAdd as StyleProp<ImageStyle>} />
                         </TouchableOpacity>
                     </>
                 ) : (
@@ -276,7 +395,7 @@ const Home = () => {
                             renderItem={({ item }) => (
                                 <TouchableOpacity
                                     style={styles.diaryItem}
-                                    onPress={() => setSelectedDiaryId(item.id)} // Вибір елемента для відображення кнопок
+                                    activeOpacity={1} // Вибір елемента для відображення кнопок
                                 >
                                     <View style={styles.diaryItemText}>
                                         {isEditing && selectedDiaryId === item.id ? (
@@ -284,16 +403,11 @@ const Home = () => {
                                             <View style={styles.editInputContainer}>
                                             <TextInput
                                                 style={styles.editTitleInput}
-                                                value={item.title}
-                                                onChangeText={(text) => {
-                                                    const updatedDiaries = diaries.map((diary) =>
-                                                        diary.id === item.id ? { ...diary, title: text } : diary
-                                                    );
-                                                    setDiaries(updatedDiaries);
-                                                }}
+                                                value={editedTitle}
+                                                onChangeText={(text) => setEditedTitle(text)}
                                             />
                                                 <TouchableOpacity onPress={closeEditPanel} style={styles.closeInputIcon}>
-                                                    <Image source={require('../../../assets/images/close-edit.png')} style={styles.closeIcon} />
+                                                    <Image source={require('../../../assets/images/close-edit.png')} style={styles.closeIcon as StyleProp<ImageStyle>} />
                                                 </TouchableOpacity>
                                             </View>
                                         ) : (
@@ -302,41 +416,55 @@ const Home = () => {
                                         {/* Не показуємо diaryPagesContainer, коли ми редагуємо */}
                                         {!isEditing && (
                                             <View style={styles.diaryPagesContainer}>
-                                                <Image source={require('../../../assets/images/check-image.png')} style={styles.diaryIcon} />
-                                                <Text style={styles.diaryPages}>{item.pages}</Text>
-                                                <Text style={styles.diaryPagesText}> pages</Text>
+                                                <Image source={require('../../../assets/images/check-image.png')} style={styles.diaryIcon as StyleProp<ImageStyle>} />
+                                                <Text style={styles.diaryPages}>{item.pageCount}</Text>
+                                                <Text style={styles.diaryPagesText}> notes</Text>
                                             </View>
                                         )}
                                     </View>
                                     <View style={styles.diaryCoverContainer}>
-                                        <Image source={item.cover} style={styles.diaryCover} />
+                                        <TouchableOpacity onPress={() => goToDiaryPage(item.id)}>
+                                            <Image
+                                            source={{ uri: item.coverPhoto }}
+                                            style={styles.coverImage1 as StyleProp<ImageStyle>}
+                                            />
+                                        </TouchableOpacity>
                                         {selectedDiaryId === item.id && (
                                             <TouchableOpacity
                                                 style={styles.editButtonCover}
                                                 onPress={() => openEditPanel(item.id)}
                                             >
-                                                <Image source={require('../../../assets/images/edit-icon.png')} style={styles.editDiaryIcon} />
+                                                <Image source={require('../../../assets/images/edit-icon.png')} style={styles.editDiaryIcon as StyleProp<ImageStyle>} />
                                             </TouchableOpacity>
                                         )}
                                     </View>
 
                                 </TouchableOpacity>
                             )}
+                            onMomentumScrollEnd={(event) => {
+                                const offsetX = event.nativeEvent.contentOffset.x;
+                                const index = Math.round(offsetX / width);
+                                const currentDiary = diaries[index];
+                                if (currentDiary) {
+                                    setSelectedDiaryId(currentDiary.id);
+                                }
+                            }}
                         />
 
+                        {/* Нижня панель з кнопками */}
                         {selectedDiaryId !== null && (
                             <View style={styles.editButtonsContainer}>
                                 <TouchableOpacity onPress={otherAction} style={styles.editButton}>
-                                    <Image source={require('../../../assets/images/button-other.png')} style={styles.editIcon} />
+                                    <Image source={require('../../../assets/images/button-other.png')} style={styles.editIcon as StyleProp<ImageStyle>} />
                                 </TouchableOpacity>
                                 <TouchableOpacity onPress={uploadDiary} style={styles.editButton}>
-                                    <Image source={require('../../../assets/images/button-upload.png')} style={styles.editIcon} />
+                                    <Image source={require('../../../assets/images/button-upload.png')} style={styles.editIcon as StyleProp<ImageStyle>} />
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={() => deleteDiary(selectedDiaryId)} style={styles.editButton}>
-                                    <Image source={require('../../../assets/images/button-delete.png')} style={styles.editIcon} />
+                                <TouchableOpacity onPress={deleteDiary} style={styles.editButton}>
+                                    <Image source={require('../../../assets/images/button-delete.png')} style={styles.editIcon as StyleProp<ImageStyle>} />
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={() => addNote(selectedDiaryId)} style={styles.editButton}>
-                                    <Image source={require('../../../assets/images/button-edit.png')} style={styles.editIcon} />
+                                <TouchableOpacity onPress={addDiary} style={styles.editButton}>
+                                    <Image source={require('../../../assets/images/button-edit.png')} style={styles.editIcon as StyleProp<ImageStyle>} />
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -349,7 +477,7 @@ const Home = () => {
                                     <TouchableOpacity onPress={closeEditPanel}>
                                         <Image
                                             source={require('../../../assets/images/close-edit.png')} // Замініть шлях на ваш
-                                            style={styles.closeIcon}
+                                            style={styles.closeIcon as StyleProp<ImageStyle>}
                                         />
                                     </TouchableOpacity>
                                 </View>
@@ -358,7 +486,7 @@ const Home = () => {
                                 <TouchableOpacity style={styles.optionButton} onPress={() => console.log('Change cover pressed')}>
                                     <Image
                                         source={require('../../../assets/images/change-cover.png')}
-                                        style={styles.optionIcon}
+                                        style={styles.optionIcon as StyleProp<ImageStyle>}
                                     />
                                     <Text style={styles.optionText}>Change cover</Text>
                                 </TouchableOpacity>
@@ -373,7 +501,7 @@ const Home = () => {
                                     <TouchableOpacity onPress={closeSearchPanel}>
                                         <Image
                                             source={require('../../../assets/images/close-edit.png')}
-                                            style={styles.closeIcon}
+                                            style={styles.closeIcon as StyleProp<ImageStyle>}
                                         />
                                     </TouchableOpacity>
                                 </View>
@@ -382,7 +510,7 @@ const Home = () => {
                                 <View style={styles.searchInputContainer}>
                                     <Image
                                         source={require('../../../assets/images/search-icon.png')}
-                                        style={styles.searchIcon}
+                                        style={styles.searchIcon as StyleProp<ImageStyle>}
                                     />
                                     <TextInput
                                         style={styles.searchInput}
@@ -402,10 +530,14 @@ const Home = () => {
                                     keyExtractor={(item) => item.id}
                                     renderItem={({ item }) => (
                                         <TouchableOpacity onPress={() => setSelectedDiaryId(item.id)} style={styles.itemContainer}>
-                                            <Image source={item.cover} style={styles.coverImage} />
+                                            <Image
+                                                source={{ uri: item.coverPhoto }}
+                                                style={styles.coverImage as StyleProp<ImageStyle>}
+                                            />
+
                                             <View style={styles.textContainer}>
                                                 <Text style={styles.titleText}>{item.title}</Text>
-                                                <Text style={styles.pagesText}>{item.pages} pages / {timeAgo(item.lastVisited)} </Text>
+                                                <Text style={styles.pagesText}>{item.pageCount} pages / {timeAgo(item.lastUpdated)} </Text>
                                             </View>
                                         </TouchableOpacity>
                                     )}
@@ -474,7 +606,7 @@ const styles = StyleSheet.create({
         height: 85,
     },
     carouselContainer: {
-        paddingVertical: 20,
+        paddingVertical: 0,
     },
     diaryItem: {
         width: width * 1,
@@ -552,11 +684,7 @@ const styles = StyleSheet.create({
     editButtonCover: {
         position: 'absolute',
         top: 10,
-        right: 10,
-    },
-    editDiaryIcon: {
-        width: 35,
-        height: 35,
+        right: 30,
     },
     editPanel: {
         position: 'absolute',
@@ -641,11 +769,6 @@ const styles = StyleSheet.create({
         top: 18,
         marginLeft: 10,
     },
-    closeIcon: {
-        width: 25,
-        height: 25,
-        resizeMode: 'contain',
-    },
     searchPanel: {
         position: 'absolute',
         left: 0,
@@ -706,9 +829,10 @@ const styles = StyleSheet.create({
     },
     allListContainer: {
         marginTop: 30,
-        alignItems: 'left',
+        alignItems: 'flex-start',
         marginLeft: 5,
         marginRight: 5,
+        marginBottom: 10
     },
     allListText: {
         fontSize: 16,
@@ -728,12 +852,18 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#C1BBBB',
         alignItems: 'center',
-        marginTop: 25,
+        marginTop: 12,
 
     },
     coverImage: {
-        width: 40,
-        height: 60,
+        width: 30,
+        height: 45,
+        marginRight: 20,
+        marginLeft: 7,
+    },
+    coverImage1: {
+        width: 200,
+        height: 300,
         marginRight: 20,
         marginLeft: 10,
     },

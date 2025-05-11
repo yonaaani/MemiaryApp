@@ -9,9 +9,6 @@
       "@assets/*": [
         "./assets/*"
       ],
-      "@env": [
-        "env.ts"
-      ]
     }
   },
   "include": [

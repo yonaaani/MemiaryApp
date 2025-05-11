@@ -34,7 +34,6 @@ const Authorization = () => {
             const currentUser = auth.currentUser;
             console.log("Current User:", currentUser);
 
-            Alert.alert("Успішний вхід", "Ви успішно увійшли!");
             console.log("Redirecting to home...");
             router.push('/home');
         } catch (error: unknown) {
