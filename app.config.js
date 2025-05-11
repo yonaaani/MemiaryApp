@@ -3,6 +3,7 @@ export default {
         name: "MemiaryApp",
         slug: "MemiaryApp",
         version: "1.0.0",
+        scheme: 'memiary',
         extra: {
             apiKey: process.env.API_KEY,
             authDomain: process.env.AUTH_DOMAIN,

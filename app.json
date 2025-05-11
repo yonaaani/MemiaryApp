@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/app-icon.png",
     "scheme": "memiary",
+    "deepLinking": true,
     "userInterfaceStyle": "automatic",
     "fonts": {
       "Bropella": "./assets/fonts/Bropella.ttf"
